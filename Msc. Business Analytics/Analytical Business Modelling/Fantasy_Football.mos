@@ -1,0 +1,212 @@
+! Program to pick an optimal fantasy football team given all available players within budget of £100m
+! Requires full version of Xpress to run
+
+model Fantasy_Football
+ uses "mmxprs"
+ 
+  declarations
+	  Form          = 1..4
+	  GoalKeepers   = 1..57                           ; Defenders      = 1..187                       
+	  Midfielders   = 1..227                          ; Forwards       = 1..93    
+	  
+	  ! Decision Variables - Going to be binary
+	  GK:           array(GoalKeepers) of mpvar       ; DF:            array(Defenders) of mpvar      ;
+	  MF:           array(Midfielders) of mpvar       ; FW:            array(Forwards)  of mpvar      ;
+	  
+	  ! Arrays we will use to store the result of our master problem
+	  SGK:          array(GoalKeepers) of real        ; SDF:           array(Defenders) of real       ;
+	  SMF:          array(Midfielders) of real        ; SFW:           array(Forwards)  of real       ;
+      
+      ! Decision variables for our sub-problem
+	  CGK:          array(Form,GoalKeepers) of mpvar  ; CDF:           array(Form,Defenders) of mpvar ;
+	  CMF:          array(Form,Midfielders) of mpvar  ; CFW:           array(Form,Forwards)  of mpvar ;
+	                     
+	  ! Arrays containing Player/Formation Data                   
+	  Formations:   array(Form,Form)   of integer     ;
+	  GKName:       array(GoalKeepers) of string      ; DFName:      array(Defenders) of string       ; 
+	  GKTeam:       array(GoalKeepers) of string      ; DFTeam:      array(Defenders) of string       ; 
+	  GKPoints:     array(GoalKeepers) of integer     ; DFPoints:    array(Defenders) of integer      ; 
+	  GKCost:       array(GoalKeepers) of real        ; DFCost:      array(Defenders) of real         ;
+	  MFName:       array(Midfielders) of string      ; FWName:      array(Forwards)  of string       ; 
+	  MFTeam:       array(Midfielders) of string      ; FWTeam:      array(Forwards)  of string       ; 
+	  MFPoints:     array(Midfielders) of integer     ; FWPoints:    array(Forwards)  of integer      ; 
+	  MFCost:       array(Midfielders) of real        ; FWCost:      array(Forwards)  of real         ; 
+  end-declarations
+ 
+  ! Procedure to check problem status, taken from machine_shop.mos
+  procedure print_status
+	 declarations
+	 status: string
+	 end-declarations
+	 case getprobstat of
+	 XPRS_OPT: status:="Optimum found"
+	 XPRS_UNF: status:="Unfinished"
+	 XPRS_INF: status:="Infeasible"
+	 XPRS_UNB: status:="Unbounded"
+	 XPRS_OTH: status:="Failed"
+     else status:="???"
+	 end-case
+	 writeln("Problem status: ", status)
+ end-procedure
+ 
+ ! Procedure which prints out the players selected for our squad
+ procedure print_squad
+	 writeln("\nSquad Selection:") 
+	 print_status
+	 writeln("Total Points: ", getobjval)
+	 writeln("\n")	 
+	 forall(j in GoalKeepers) do
+	 	if (SGK(j) = 1 ) then
+			writeln("- We have chosen ", GKName(j), " from ", GKTeam(j) )
+		end-if	
+	 end-do
+	 writeln("\n")
+	 forall(j in Defenders) do
+	 	if (SDF(j) = 1 ) then
+			writeln("- We have chosen ", DFName(j), " from ", DFTeam(j) )
+		end-if	
+	 end-do
+	 writeln("\n")
+	 forall(j in Midfielders) do
+	 	if (SMF(j) = 1 ) then
+			writeln("- We have chosen ", MFName(j), " from ", MFTeam(j) )
+		end-if	
+	 end-do
+	 writeln("\n")
+	 forall(j in Forwards) do
+		if (SFW(j) = 1 ) then
+			writeln("- We have chosen ", FWName(j), " from ", FWTeam(j) )
+		end-if	
+	 end-do
+ end-procedure	 
+ 
+ ! Procedure which stores the results of our master problem in an array
+ ! Idea to do this taken from myBenders_example.mos
+ procedure store_result
+ 	forall(i in GoalKeepers) do
+ 		SGK(i) := getsol(GK(i))
+ 	end-do
+ 	forall(i in Defenders) do
+ 		SDF(i) := getsol(DF(i))
+ 	end-do
+ 	forall(i in Midfielders) do
+ 		SMF(i) := getsol(MF(i))
+ 	end-do
+ 	forall(i in Forwards) do
+ 		SFW(i) := getsol(FW(i))
+ 	end-do
+ end-procedure	
+ 
+ ! Data Initialization
+ initializations from "player_data.dat"
+ 	GKName ; GKTeam ; GKPoints ; GKCost ;
+ 	DFName ; DFTeam ; DFPoints ; DFCost ;
+ 	MFName ; MFTeam ; MFPoints ; MFCost ;
+ 	FWName ; FWTeam ; FWPoints ; FWCost ;
+ 	Formations
+ end-initializations	
+ 
+	 
+ ! The objective function for our master problem - we want to pick fifteen players with the maximum number of
+ ! points as is possible 
+ Z:= sum(j in GoalKeepers) GKPoints(j)*GK(j) + sum(j in Defenders) DFPoints(j)*DF(j) +
+	 sum(j in Midfielders) MFPoints(j)*MF(j) + sum(j in Forwards)  FWPoints(j)*FW(j) 
+		 
+ ! Constraints
+ ! We must pick two goalkeepers for our squad, five defenders, five midfielders and three forwards
+ ! Each is a binary variable, as we can only pick or not pick a given player
+ TotalGK := sum(j in GoalKeepers) GK(j) = 2
+ forall(j in GoalKeepers) do 
+	GK(j) is_binary
+ end-do
+		 
+ TotalDF := sum(j in Defenders)   DF(j) = 5
+ forall(j in Defenders) do 
+ 	DF(j) is_binary
+ end-do
+		 
+ TotalMF := sum(j in Midfielders) MF(j) = 5
+ forall(j in Midfielders) do 
+ 	MF(j) is_binary
+ end-do
+		 
+ TotalFW := sum(j in Forwards)    FW(j) = 3
+ forall(j in Forwards) do 
+ 	FW(j) is_binary
+ end-do
+	 
+ ! Squad selection must be within the budget limit	 
+ Cost  := sum(j in GoalKeepers) GKCost(j)*GK(j) + sum(j in Defenders) DFCost(j)*DF(j) +
+		  sum(j in Midfielders) MFCost(j)*MF(j) + sum(j in Forwards)  FWCost(j)*FW(j) <= 100
+	 
+ ! Solve our master problem - pick a squad with the maximum number of points available
+ maximise(Z) 
+     
+ store_result    
+ print_squad
+
+ ! Iterate once for each formation
+ forall(i in Form) do
+	 
+	 ! Sub problem, picking the best 11 players to field out of our fifteen by using the results from solving the master problem
+	 Y:= sum(j in GoalKeepers) GKPoints(j)*CGK(i,j)*SGK(j) + sum(j in Defenders) DFPoints(j)*CDF(i,j)*SDF(j) +
+	     sum(j in Midfielders) MFPoints(j)*CMF(i,j)*SMF(j) + sum(j in Forwards)  FWPoints(j)*CFW(i,j)*SFW(j)
+	 
+	 ! Pick an eleven out of our squad that fits the given formation
+	 ! These possible formations are: [1,4,4,2], [1,4,5,1], [1,3,5,2] and [1,4,3,3]
+	 ChosenGK := sum(j in GoalKeepers) CGK(i,j) = Formations(i,1)
+	 forall(j in GoalKeepers) do 
+	 	CGK(i,j) is_binary
+	 end-do
+	 
+	 ChosenDF := sum(j in Defenders)   CDF(i,j) = Formations(i,2)
+	 forall(j in Defenders) do 
+	 	CDF(i,j) is_binary
+	 end-do
+	 
+	 ChosenMF := sum(j in Midfielders) CMF(i,j) = Formations(i,3)
+	 forall(j in Midfielders) do 
+	    CMF(i,j) is_binary
+	 end-do
+	 
+	 ChosenFW := sum(j in Forwards)    CFW(i,j) = Formations(i,4)
+	 forall(j in Forwards) do 
+	 	CFW(i,j) is_binary
+	 end-do
+	 
+	 ! Solve our problem
+	 maximise(Y)
+	 
+	 ! For our given formation, display the team selection
+	 writeln("\n\n")
+	 writeln("Playing with a ", Formations(i,2), "-", Formations(i,3), "-", Formations(i,4), " formation") 
+	 print_status
+	 writeln("Total Points: ", getobjval)
+	 writeln("\n")	
+	 forall(j in GoalKeepers) do
+	 	if (getsol(CGK(i,j)) = 1 ) then
+			writeln("- We have chosen ", GKName(j), " from ", GKTeam(j) )
+		end-if	
+	 end-do
+	 writeln("\n")
+	 forall(j in Defenders) do
+	 	if (getsol(CDF(i,j)) = 1 ) then
+			writeln("- We have chosen ", DFName(j), " from ", DFTeam(j) )
+		end-if	
+	 end-do
+	 writeln("\n")
+	 forall(j in Midfielders) do
+	 	if (getsol(CMF(i,j)) = 1 ) then
+			writeln("- We have chosen ", MFName(j), " from ", MFTeam(j) )
+		end-if	
+	 end-do
+	 writeln("\n")
+	 forall(j in Forwards) do
+	 	if (getsol(CFW(i,j)) = 1 ) then
+			writeln("- We have chosen ", FWName(j), " from ", FWTeam(j) )
+		end-if	
+	 end-do	
+ 
+ end-do
+ 
+ end-model
